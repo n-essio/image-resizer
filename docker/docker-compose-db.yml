@@ -1,0 +1,31 @@
+version: '2'
+
+services:
+  postgresql:
+    image: postgres:11
+    environment:
+      POSTGRES_PASSWORD: alexander-first
+      POSTGRES_USER: alexander-first
+      POSTGRES_DB: alexander-first
+    ports:
+      - '5432:5432'
+  pgadmin4:
+    image: dpage/pgadmin4
+    ports:
+      - '5050:5050'
+      - '85:80'
+    links:
+      - postgresql:postgresql
+    depends_on:
+      - postgresql
+    environment:
+      PGADMIN_DEFAULT_EMAIL: alexander@first.it
+      PGADMIN_DEFAULT_PASSWORD: -first
+  minio:
+    image: minio/minio
+    ports:
+      - "9001:9000"
+    environment:
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+    command: server /data
