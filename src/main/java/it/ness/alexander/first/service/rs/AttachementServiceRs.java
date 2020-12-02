@@ -151,10 +151,10 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
             scaledAttachment.external_uuid = attachment.external_uuid;
             scaledAttachment.creation_date = new Date();
             logger.infov("scaled attachment: [{0}]", scaledAttachment);
-            JpaOperations.persist(scaledAttachment);
 
             String result = s3Client.uploadObject(scaledAttachment.uuid, scaledInputStream, scaledAttachment.mime_type);
             scaledAttachment.s3name = scaledAttachment.uuid;
+            JpaOperations.persist(scaledAttachment);
 
             if (scaledAttachment == null || scaledAttachment.uuid == null) {
                 logger.error("Failed to create resource: " + scaledAttachment);
