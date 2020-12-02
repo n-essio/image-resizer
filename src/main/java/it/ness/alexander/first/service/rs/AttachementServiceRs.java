@@ -111,6 +111,14 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
         if (attachment == null) {
             return handleObjectNotFoundRequest(uuid);
         }
+        String suuid = attachment.uuid + "_" + format;
+        if (Attachment.findById(suuid) != null)
+        {
+            String errMsg = String.format("Resource with uuid [%s] already exists.", suuid);
+            logger.error(errMsg);
+            return jsonErrorMessageResponse(errMsg);
+        }
+
         logger.infov(logMessage, attachment, format);
         logger.info(MediaType.valueOf(attachment.mime_type));
 
@@ -136,19 +144,18 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
             final ByteArrayInputStream scaledInputStream = new ByteArrayInputStream(outputStream.toByteArray());
 
             Attachment scaledAttachment = new Attachment();
-
-            scaledAttachment.uuid = attachment.uuid + "_" + format;
+            scaledAttachment.uuid = suuid;
             scaledAttachment.name = attachment.name;
             scaledAttachment.mime_type = "image/jpg";
             scaledAttachment.external_type = attachment.external_type;
             scaledAttachment.external_uuid = attachment.external_uuid;
             scaledAttachment.creation_date = new Date();
             logger.infov("scaled attachment: [{0}]", scaledAttachment);
+            JpaOperations.persist(scaledAttachment);
 
             String result = s3Client.uploadObject(scaledAttachment.uuid, scaledInputStream, scaledAttachment.mime_type);
             scaledAttachment.s3name = scaledAttachment.uuid;
 
-            JpaOperations.persist(scaledAttachment);
             if (scaledAttachment == null || scaledAttachment.uuid == null) {
                 logger.error("Failed to create resource: " + scaledAttachment);
                 return jsonErrorMessageResponse(scaledAttachment);
