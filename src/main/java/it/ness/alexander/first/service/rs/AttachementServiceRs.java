@@ -1,6 +1,7 @@
 package it.ness.alexander.first.service.rs;
 
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import io.quarkus.hibernate.orm.panache.runtime.JpaOperations;
 import io.quarkus.panache.common.Parameters;
 import io.quarkus.panache.common.Sort;
 import it.ness.alexander.first.model.pojo.FormData;
@@ -22,6 +23,10 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.UUID;
+import java.util.Date;
+
+import javax.imageio.ImageIO;
 
 import static it.ness.alexander.first.management.AppConstants.ATTACHMENTS_PATH;
 
@@ -34,6 +39,9 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
     @Inject
     S3Client s3Client;
 
+    public AttachementServiceRs() {
+        super(Attachment.class);
+    }
 
     @Override
     protected String getDefaultOrderBy() {
@@ -70,61 +78,89 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
     @Path("/upload")
     @Transactional
     public Response upload(@MultipartForm FormData formData) {
-        final String logMessage = "@UPLOAD CSV FILE: [{0}]";
-        logger.info("UPLOAD CSV FILE [" + formData.fileName + "]");
+
+        final String logMessage = "@POST upload image: [{0}]";
 
         Attachment attachment = new Attachment();
-        //
-        attachment.external_type = formData.external_type;
-        attachment.external_uuid = formData.external_uuid;
         try {
-            attachment.persist();
-            s3Client.uploadObject(attachment.uuid, formData.data, formData.mimeType);
+            attachment.uuid = UUID.randomUUID().toString();
+            attachment.external_type = formData.external_type;
+            attachment.external_uuid = formData.external_uuid;
+
+            performDocumentUploading(attachment, formData, logMessage);
+            JpaOperations.persist(attachment);
+            if (attachment == null || attachment.uuid == null) {
+                logger.error("Failed to create resource: " + attachment);
+                return jsonErrorMessageResponse(attachment);
+            } else {
+                return Response.status(Response.Status.OK).entity(attachment).build();
+            }
         } catch (Exception e) {
             logger.errorv(e, logMessage);
             return jsonErrorMessageResponse(attachment);
         }
-        return Response.status(Response.Status.OK).entity(attachment).build();
     }
 
     @GET
     @Path("/{uuid}/resize")
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
+    @Transactional
     public Response resize(@PathParam(value = "uuid") String uuid, @QueryParam(value = "format") String format) {
+        final String logMessage = "@GET resize: [{0}] format: [{1}]";
         Attachment attachment = Attachment.findById(uuid);
-// RESIZE:
-        https:
-//eikhart.com/blog/aspect-ratio-calculator#:~:text=There%20is%20a%20simple%20formula,%3D%20(%20newHeight%20*%20aspectRatio%20)%20.
+        if (attachment == null) {
+            return handleObjectNotFoundRequest(uuid);
+        }
+        logger.infov(logMessage, attachment, format);
+        logger.info(MediaType.valueOf(attachment.mime_type));
 
-        //if the format is not present:
-//        you will use generate image dinamically
-//        https://www.baeldung.com/java-resize-image
-//        the image must preserve the ratio:
-//        if width > height && width > image_width (you will generate the new image scaling proportionally on width)
-//        if height > width  && height > image_height (you will generate the new image scaling proportionally on height)
-//
-//        - you will update to s3
         try {
-            int targetWidth = 0;
-            int targetHeight = 0;
-            InputStream inputStream = new ByteArrayInputStream();
             StreamingOutput output = s3Client.downloadObject(attachment.uuid);
-            Thumbnails.of(inputStream)
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            output.write(baos);
+            InputStream is = new ByteArrayInputStream(baos.toByteArray());
+            BufferedImage originalImage = ImageIO.read(is);
+            int imageWidth = originalImage.getWidth();
+            int imageHeight = originalImage.getHeight();
+            logger.infov("image width = " + imageWidth + " image height = " + imageHeight);
+            String[] tokens = format.split("x");
+            int targetWidth = Integer.valueOf(tokens[0]);
+            int targetHeight = Integer.valueOf(tokens[1]);
+            logger.infov("new width = " + targetWidth + " new height = " + targetHeight);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            Thumbnails.of(originalImage)
                     .size(targetWidth, targetHeight)
                     .outputFormat("JPEG")
                     .outputQuality(1)
                     .toOutputStream(outputStream);
-            byte[] data = outputStream.toByteArray();
-            ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
+            final ByteArrayInputStream scaledInputStream = new ByteArrayInputStream(outputStream.toByteArray());
 
-            s3Client.uploadObject(attachment.uuid + "_" + format, output, attachment.mime_type);
-//        - you will add to formats
-//        - you will update attachemnt
-            return Response.ok().build();
+            Attachment scaledAttachment = new Attachment();
+
+            scaledAttachment.uuid = attachment.uuid + "_" + format;
+            scaledAttachment.name = attachment.name;
+            scaledAttachment.mime_type = "image/jpg";
+            scaledAttachment.external_type = attachment.external_type;
+            scaledAttachment.external_uuid = attachment.external_uuid;
+            scaledAttachment.creation_date = new Date();
+            logger.infov("scaled attachment: [{0}]", scaledAttachment);
+
+            String result = s3Client.uploadObject(scaledAttachment.uuid, scaledInputStream, scaledAttachment.mime_type);
+            scaledAttachment.s3name = scaledAttachment.uuid;
+
+            JpaOperations.persist(scaledAttachment);
+            if (scaledAttachment == null || scaledAttachment.uuid == null) {
+                logger.error("Failed to create resource: " + scaledAttachment);
+                return jsonErrorMessageResponse(scaledAttachment);
+            } else {
+                return Response.ok(s3Client.downloadObject(scaledAttachment.uuid), scaledAttachment.mime_type)
+                        .header("Content-Disposition", "attachment; filename=\"" + scaledAttachment.name + "\"")
+                        .build();
+            }
         } catch (Exception e) {
-            return Response.serverError().build();
+            logger.errorv(e, logMessage);
+            return jsonErrorMessageResponse(attachment);
         }
-
     }
 
     @GET
@@ -143,5 +179,14 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
                 .build();
     }
 
-
+    private void performDocumentUploading(Attachment attachment, FormData formData, String logMessage) throws Exception {
+        attachment.name = formData.fileName;
+        attachment.mime_type = formData.mimeType;
+        attachment.external_type = formData.external_type;
+        attachment.external_uuid = formData.external_uuid;
+        attachment.creation_date = new Date();
+        logger.infov(logMessage, attachment);
+        String result = s3Client.uploadObject(attachment.uuid, formData.data, formData.mimeType);
+        attachment.s3name = attachment.uuid;
+    }
 }
