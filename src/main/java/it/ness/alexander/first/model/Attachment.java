@@ -8,7 +8,11 @@ import org.hibernate.annotations.ParamDef;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.Table;
+import javax.persistence.ElementCollection;
+
 import java.util.Date;
+import java.util.List;
+import java.util.ArrayList;
 
 @Entity
 @Table(name = "attachments")
@@ -43,6 +47,9 @@ public class Attachment extends PanacheEntityBase {
     // the name of entity (es: blogpost, developer, project, user)
     public String external_type;
 
+    @ElementCollection
+    public List<String> formats = new ArrayList<String>();
+
     public Attachment() {
     }
 
@@ -58,6 +65,7 @@ public class Attachment extends PanacheEntityBase {
                 ", external_type='" + external_type + '\'' +
                 ", external_uuid='" + external_uuid + '\'' +
                 ", s3_url='" + s3_url + '\'' +
+                ", formats=[" + String.join(", ", formats) + ']' +
                 '}';
     }
 }
