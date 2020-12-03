@@ -8,7 +8,9 @@ import it.ness.alexander.first.model.pojo.FormData;
 import it.ness.alexander.first.service.S3Client;
 import it.ness.api.service.RsRepositoryServiceV3;
 import it.ness.alexander.first.model.Attachment;
-import net.coobird.thumbnailator.Thumbnails;
+import it.ness.alexander.first.model.pojo.ImageEvent;
+import javax.enterprise.event.Event;
+
 import org.jboss.resteasy.annotations.providers.multipart.MultipartForm;
 
 import javax.ejb.Singleton;
@@ -19,16 +21,11 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.StreamingOutput;
 
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.util.UUID;
 import java.util.Date;
 
-import javax.imageio.ImageIO;
-
 import static it.ness.alexander.first.management.AppConstants.ATTACHMENTS_PATH;
+import static it.ness.alexander.first.management.AppConstants.SUPPORTED_IMAGE_FORMATS;
 
 @Path(ATTACHMENTS_PATH)
 @Produces(MediaType.APPLICATION_JSON)
@@ -38,6 +35,9 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
 
     @Inject
     S3Client s3Client;
+
+    @Inject
+    Event imageEvent;
 
     public AttachementServiceRs() {
         super(Attachment.class);
@@ -88,7 +88,7 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
             attachment.external_uuid = formData.external_uuid;
 
             performDocumentUploading(attachment, formData, logMessage);
-            JpaOperations.persist(attachment);
+            attachment.persist();
             if (attachment == null || attachment.uuid == null) {
                 logger.error("Failed to create resource: " + attachment);
                 return jsonErrorMessageResponse(attachment);
@@ -103,77 +103,48 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
 
     @GET
     @Path("/{uuid}/resize")
-    @Produces(MediaType.APPLICATION_OCTET_STREAM)
     @Transactional
     public Response resize(@PathParam(value = "uuid") String uuid, @QueryParam(value = "format") String format) {
-        final String logMessage = "@GET resize: [{0}] format: [{1}]";
-        Attachment attachment = Attachment.findById(uuid);
-        if (attachment == null) {
-            return handleObjectNotFoundRequest(uuid);
-        }
-        String suuid = attachment.uuid + "_" + format;
-        if (Attachment.findById(suuid) != null)
-        {
-            String errMsg = String.format("Resource with uuid [%s] already exists.", suuid);
+        if (!validateFormat(format)) {
+            String errMsg = String.format("Resizing image format [%s] not supported.", format);
             logger.error(errMsg);
             return jsonErrorMessageResponse(errMsg);
         }
 
+        Attachment attachment = Attachment.findById(uuid);
+        if (attachment == null) {
+            return handleObjectNotFoundRequest(uuid);
+        }
+        boolean itemExists = attachment.formats.stream().anyMatch(c -> c.equals(format));
+        if (itemExists) {
+            String errMsg = String.format("Image [%s] with format [%s] already exists.", uuid, format);
+            logger.error(errMsg);
+            return jsonErrorMessageResponse(errMsg);
+        }
+
+        final String logMessage = "@GET resize: [{0}] format: [{1}]";
         logger.infov(logMessage, attachment, format);
         logger.info(MediaType.valueOf(attachment.mime_type));
 
-        try {
-            StreamingOutput output = s3Client.downloadObject(attachment.uuid);
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            output.write(baos);
-            InputStream is = new ByteArrayInputStream(baos.toByteArray());
-            BufferedImage originalImage = ImageIO.read(is);
-            int imageWidth = originalImage.getWidth();
-            int imageHeight = originalImage.getHeight();
-            logger.infov("image width = " + imageWidth + " image height = " + imageHeight);
-            String[] tokens = format.split("x");
-            int targetWidth = Integer.valueOf(tokens[0]);
-            int targetHeight = Integer.valueOf(tokens[1]);
-            logger.infov("new width = " + targetWidth + " new height = " + targetHeight);
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            Thumbnails.of(originalImage)
-                    .size(targetWidth, targetHeight)
-                    .outputFormat("JPEG")
-                    .outputQuality(1)
-                    .toOutputStream(outputStream);
-            final ByteArrayInputStream scaledInputStream = new ByteArrayInputStream(outputStream.toByteArray());
+        imageEvent.fireAsync(new ImageEvent(uuid, format));
 
-            Attachment scaledAttachment = new Attachment();
-            scaledAttachment.uuid = suuid;
-            scaledAttachment.name = attachment.name;
-            scaledAttachment.mime_type = "image/jpg";
-            scaledAttachment.external_type = attachment.external_type;
-            scaledAttachment.external_uuid = attachment.external_uuid;
-            scaledAttachment.creation_date = new Date();
-            logger.infov("scaled attachment: [{0}]", scaledAttachment);
-
-            String result = s3Client.uploadObject(scaledAttachment.uuid, scaledInputStream, scaledAttachment.mime_type);
-            scaledAttachment.s3name = scaledAttachment.uuid;
-            JpaOperations.persist(scaledAttachment);
-
-            if (scaledAttachment == null || scaledAttachment.uuid == null) {
-                logger.error("Failed to create resource: " + scaledAttachment);
-                return jsonErrorMessageResponse(scaledAttachment);
-            } else {
-                return Response.ok(s3Client.downloadObject(scaledAttachment.uuid), scaledAttachment.mime_type)
-                        .header("Content-Disposition", "attachment; filename=\"" + scaledAttachment.name + "\"")
-                        .build();
-            }
-        } catch (Exception e) {
-            logger.errorv(e, logMessage);
-            return jsonErrorMessageResponse(attachment);
-        }
+        return Response.ok().build();
     }
 
     @GET
     @Path("/{uuid}/download")
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
-    public Response download(@PathParam(value = "uuid") String uuid) throws Exception {
+    public Response download(@PathParam(value = "uuid") String uuid, @QueryParam(value = "format") String format) throws Exception {
+        String duuid = uuid;
+        if (format != null)
+        {
+            if (!validateFormat(format)) {
+                String errMsg = String.format("Image format [%s] not supported.", format);
+                logger.error(errMsg);
+                return jsonErrorMessageResponse(errMsg);
+            }
+            duuid = duuid + "_" + format;
+        }
         final String logMessage = "@GET download: [{0}]";
         Attachment attachment = Attachment.findById(uuid);
         if (attachment == null) {
@@ -181,9 +152,18 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
         }
         logger.infov(logMessage, attachment);
         logger.info(MediaType.valueOf(attachment.mime_type));
-        return Response.ok(s3Client.downloadObject(attachment.uuid), attachment.mime_type)
-                .header("Content-Disposition", "attachment; filename=\"" + attachment.name + "\"")
-                .build();
+
+        boolean itemExists = attachment.formats.stream().anyMatch(c -> c.equals(format));
+        if (itemExists) {
+            return Response.ok(s3Client.downloadObject(duuid), attachment.mime_type)
+                    .header("Content-Disposition", "attachment; filename=\"" + attachment.name + "\"")
+                    .build();
+        }
+        else {
+            return Response.ok(s3Client.downloadObject(attachment.uuid), attachment.mime_type)
+                    .header("Content-Disposition", "attachment; filename=\"" + attachment.name + "\"")
+                    .build();
+        }
     }
 
     private void performDocumentUploading(Attachment attachment, FormData formData, String logMessage) throws Exception {
@@ -195,5 +175,14 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
         logger.infov(logMessage, attachment);
         String result = s3Client.uploadObject(attachment.uuid, formData.data, formData.mimeType);
         attachment.s3name = attachment.uuid;
+    }
+
+    private boolean validateFormat(String format) {
+        for (String f : SUPPORTED_IMAGE_FORMATS)
+        {
+            if (f.equals(format))
+                return true;
+        }
+        return false;
     }
 }
