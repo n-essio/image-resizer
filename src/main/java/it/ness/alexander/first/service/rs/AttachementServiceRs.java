@@ -83,10 +83,6 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
 
         Attachment attachment = new Attachment();
         try {
-            attachment.uuid = UUID.randomUUID().toString();
-            attachment.external_type = formData.external_type;
-            attachment.external_uuid = formData.external_uuid;
-
             performDocumentUploading(attachment, formData, logMessage);
             attachment.persist();
             if (attachment == null || attachment.uuid == null) {
@@ -167,6 +163,7 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
     }
 
     private void performDocumentUploading(Attachment attachment, FormData formData, String logMessage) throws Exception {
+        attachment.uuid = UUID.randomUUID().toString();
         attachment.name = formData.fileName;
         attachment.mime_type = formData.mimeType;
         attachment.external_type = formData.external_type;
