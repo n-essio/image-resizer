@@ -31,6 +31,8 @@ public class ImageFormat extends PanacheEntityBase {
 
     public Integer hour_of_day_to_start;
 
+    public String executor;
+
     @ElementCollection
     public List<String> formats = new ArrayList<String>();
 
@@ -42,7 +44,8 @@ public class ImageFormat extends PanacheEntityBase {
         return "ImageFormat{" +
                 "uuid='" + uuid + '\'' +
                 ", mime_type='" + mime_type + '\'' +
-                ", hour_of_day_to_start='" + String.valueOf(hour_of_day_to_start) + '\'' +
+                ", hour_of_day_to_start='" + hour_of_day_to_start + '\'' +
+                ", executor='" + executor + '\'' +
                 ", formats=[" + String.join(", ", formats) + ']' +
                 '}';
     }
