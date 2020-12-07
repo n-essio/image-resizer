@@ -74,9 +74,17 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-scheduler</artifactId>
+    </dependency>
+    <dependency>
       <groupId>io.rest-assured</groupId>
       <artifactId>rest-assured</artifactId>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.amqphub.quarkus</groupId>
+      <artifactId>quarkus-qpid-jms</artifactId>
     </dependency>
   </dependencies>
   <build>

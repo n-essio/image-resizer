@@ -1,7 +1,6 @@
 package it.ness.alexander.first.service.rs;
 
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
-import io.quarkus.hibernate.orm.panache.runtime.JpaOperations;
 import io.quarkus.panache.common.Parameters;
 import io.quarkus.panache.common.Sort;
 import it.ness.alexander.first.model.pojo.FormData;
@@ -19,7 +18,6 @@ import javax.transaction.Transactional;
 import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import javax.ws.rs.core.StreamingOutput;
 
 import java.util.UUID;
 import java.util.Date;
@@ -83,10 +81,6 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
 
         Attachment attachment = new Attachment();
         try {
-            attachment.uuid = UUID.randomUUID().toString();
-            attachment.external_type = formData.external_type;
-            attachment.external_uuid = formData.external_uuid;
-
             performDocumentUploading(attachment, formData, logMessage);
             attachment.persist();
             if (attachment == null || attachment.uuid == null) {
@@ -167,6 +161,7 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
     }
 
     private void performDocumentUploading(Attachment attachment, FormData formData, String logMessage) throws Exception {
+        attachment.uuid = UUID.randomUUID().toString();
         attachment.name = formData.fileName;
         attachment.mime_type = formData.mimeType;
         attachment.external_type = formData.external_type;

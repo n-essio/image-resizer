@@ -28,21 +28,28 @@ public class ImageService {
     @Inject
     EntityManager entityManager;
 
-    @Transactional
     public void onEvent(@ObservesAsync ImageEvent event) {
+        final String uuid = event.getUuid();
+        final String format = event.getFormat();
+        resize(uuid, format);
+    }
+
+    @Transactional
+    public void resize(final String uuid, final String format) {
         //resize and upload to s3
         try {
-            String uuid = event.getUuid();
-            String format = event.getFormat();
             Attachment attachment = Attachment.findById(uuid);
             if (attachment != null) {
-                String mime_type = attachment.mime_type;
-                String ruuid = uuid + "_" + format;
-                BufferedImage originalImg = downloadImageFromS3(uuid);
-                ByteArrayOutputStream resizedBaos = resize(originalImg, format, mime_type);
-                uploadImageToS3(ruuid, resizedBaos, mime_type);
-                attachment.formats.add(format);
-                entityManager.merge(attachment);
+                boolean itemExists = attachment.formats.stream().anyMatch(c -> c.equals(format));
+                if (!itemExists) {
+                    String mime_type = attachment.mime_type;
+                    String ruuid = uuid + "_" + format;
+                    BufferedImage originalImg = downloadImageFromS3(uuid);
+                    ByteArrayOutputStream resizedBaos = resize(originalImg, format, mime_type);
+                    uploadImageToS3(ruuid, resizedBaos, mime_type);
+                    attachment.formats.add(format);
+                    entityManager.merge(attachment);
+                }
             }
         } catch (Exception e) {
             logger.error("Failed to create resource in ImageService: " + e);
@@ -78,7 +85,7 @@ public class ImageService {
 
     private void uploadImageToS3(String uuid, ByteArrayOutputStream resizedBaos, String mime_type) throws Exception {
         final ByteArrayInputStream resizedBais = new ByteArrayInputStream(resizedBaos.toByteArray());
-        String result = s3Client.uploadObject(uuid, resizedBais, mime_type);
+        s3Client.uploadObject(uuid, resizedBais, mime_type);
     }
 
     private String getFormatForMimeType(String mime_type) throws Exception {
@@ -87,7 +94,8 @@ public class ImageService {
         for (String f : formats) {
             String lf = f.toLowerCase();
             if (lmime_type.indexOf(lf) > 0 ||
-                    lf.indexOf(lmime_type) > 0)
+                    lf.indexOf(lmime_type) > 0 ||
+                    lf.equals(lmime_type))
                 return f;
         }
         throw new Exception(String.format("Failed to find Image type for mime type [%s]", mime_type));

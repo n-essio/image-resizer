@@ -14,7 +14,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.ArrayList;
 
-@Entity
+@Entity(name = "attachments")
 @Table(name = "attachments")
 
 @FilterDef(name = "obj.uuid", parameters = @ParamDef(name = "uuid", type = "string"))
