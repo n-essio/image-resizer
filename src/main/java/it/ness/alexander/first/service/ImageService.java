@@ -28,9 +28,14 @@ public class ImageService {
     @Inject
     EntityManager entityManager;
 
-    public void onEvent(@ObservesAsync ImageEvent event) {
-        final String uuid = event.getUuid();
-        final String format = event.getFormat();
+    public void onEvent(@ObservesAsync ImageEvent imageEvent) {
+        logger.info("resize event " + imageEvent);
+        if (imageEvent.isNotValid()) {
+            return;
+        }
+        final String uuid = imageEvent.uuid;
+        final String format = imageEvent.format;
+        //resize and upload to s3
         resize(uuid, format);
     }
 
@@ -93,9 +98,7 @@ public class ImageService {
         String lmime_type = mime_type.toLowerCase();
         for (String f : formats) {
             String lf = f.toLowerCase();
-            if (lmime_type.indexOf(lf) > 0 ||
-                    lf.indexOf(lmime_type) > 0 ||
-                    lf.equals(lmime_type))
+            if (lmime_type.indexOf(lf) > 0 || lf.equals(lmime_type))
                 return f;
         }
         throw new Exception(String.format("Failed to find Image type for mime type [%s]", mime_type));

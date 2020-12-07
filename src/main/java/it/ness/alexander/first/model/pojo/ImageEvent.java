@@ -2,20 +2,23 @@ package it.ness.alexander.first.model.pojo;
 
 public class ImageEvent {
 
-    private String uuid;
+    public String uuid;
 
-    private String format;
+    public String format;
 
     public ImageEvent(String uuid, String format) {
         this.uuid = uuid;
         this.format = format;
     }
 
-    public String getUuid() {
-        return uuid;
+    @Override
+    public String toString() {
+        return "ImageEvent{" +
+                "uuid='" + uuid + '\'' +
+                ", format='" + format + '\'' +
+                '}';
     }
-
-    public String getFormat() {
-        return format;
+    public boolean isNotValid() {
+        return this.uuid.isBlank() || this.format.isBlank();
     }
 }

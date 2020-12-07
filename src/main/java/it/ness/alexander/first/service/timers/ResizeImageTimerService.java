@@ -1,9 +1,10 @@
 package it.ness.alexander.first.service.timers;
 
+import io.quarkus.hibernate.orm.panache.PanacheQuery;
+import io.quarkus.panache.common.Parameters;
 import io.quarkus.scheduler.Scheduled;
 import it.ness.alexander.first.model.pojo.ImageEvent;
 import it.ness.alexander.first.service.jms.ImageServiceJMSProducer;
-import org.hibernate.Session;
 import org.jboss.logging.Logger;
 
 import javax.enterprise.event.Event;
@@ -33,18 +34,17 @@ public class ResizeImageTimerService {
 
     protected Logger logger = Logger.getLogger(getClass());
 
-    @Scheduled(every="30m")
+    @Scheduled(every="3m")
     @Transactional
     void processResizingActions() {
         Calendar rightNow = Calendar.getInstance();
         int hour = rightNow.get(Calendar.HOUR_OF_DAY);
-        enableFilter("obj.hour_of_day_to_start", "hour_of_day_to_start", hour);
+        PanacheQuery<ImageFormat> search = ImageFormat.find("select a from ImageFormat a");
+        search.filter("obj.hour_of_day_to_start", Parameters.with("hour_of_day_to_start", hour));
 
-        List<ImageFormat> imageFormats = ImageFormat.list("select a from ImageFormat a");
-
+        List<ImageFormat> imageFormats = search.list();
         if (imageFormats != null) {
-            for (ImageFormat imageFormat : imageFormats)
-            {
+            for (ImageFormat imageFormat : imageFormats) {
                 if (imageFormat.executor != null) {
                     if ("jms".equals(imageFormat.executor.toLowerCase()))
                         elaborateImageFormatJMS(imageFormat);
@@ -89,11 +89,5 @@ public class ResizeImageTimerService {
         q.setParameter(1, format);
         q.setParameter(2, mime_type);
         return q.getResultList();
-    }
-
-    public void enableFilter(String filterName, String parameterName, Object value) {
-        entityManager.unwrap(Session.class)
-                .enableFilter(filterName)
-                .setParameter(parameterName, value);
     }
 }
