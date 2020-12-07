@@ -7,10 +7,9 @@ import org.jboss.logging.Logger;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
-import javax.jms.ConnectionFactory;
-import javax.jms.JMSContext;
-import javax.jms.JMSRuntimeException;
-import javax.jms.Session;
+import javax.jms.*;
+
+import static it.ness.alexander.first.management.AppConstants.IMAGE_RESIZE_QUEUE;
 
 @ApplicationScoped
 public class ImageServiceJMSProducer {
@@ -20,23 +19,35 @@ public class ImageServiceJMSProducer {
 
     protected Logger logger = Logger.getLogger(getClass());
 
-    public void sendMessage(String uuid, String format) {
-        try (JMSContext context = connectionFactory.createContext(Session.AUTO_ACKNOWLEDGE)){
-            ObjectMapper mapper = new ObjectMapper();
+    private Queue queue = null;
 
+    private JMSProducer producer = null;
+
+    public void sendMessage(String uuid, String format) {
+        try {
+            if (queue == null || producer == null)
+                createProducerQueue();
+
+            ObjectMapper mapper = new ObjectMapper();
             // create a JSON object
             ObjectNode message = mapper.createObjectNode();
             message.put("uuid", uuid);
             message.put("format", format);
 
-            // convert `ObjectNode` to pretty-print JSON
-            String jsonMessage = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(message);
+            // convert `ObjectNode` to JSON
+            String jsonMessage = mapper.writeValueAsString(message);
+            producer.send(queue, jsonMessage);
 
-            context.createProducer().send(context.createQueue("imageResizeQueue"), jsonMessage);
-        } catch (JMSRuntimeException ex) {
+        } catch (JMSException ex) {
             logger.error("Failed to send jms message to ImageService: " + ex);
         } catch (JsonProcessingException e) {
             logger.error("Failed to process json resource: " + e);
         }
+    }
+
+    protected void createProducerQueue() throws JMSException {
+        JMSContext context = connectionFactory.createContext(Session.AUTO_ACKNOWLEDGE);
+        queue = context.createQueue(IMAGE_RESIZE_QUEUE);
+        producer = context.createProducer();
     }
 }

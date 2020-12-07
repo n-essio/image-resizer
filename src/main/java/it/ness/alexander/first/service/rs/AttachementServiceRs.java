@@ -129,35 +129,25 @@ public class AttachementServiceRs extends RsRepositoryServiceV3<Attachment, Stri
     @Path("/{uuid}/download")
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
     public Response download(@PathParam(value = "uuid") String uuid, @QueryParam(value = "format") String format) throws Exception {
-        String duuid = uuid;
-        if (format != null)
-        {
-            if (!validateFormat(format)) {
-                String errMsg = String.format("Image format [%s] not supported.", format);
-                logger.error(errMsg);
-                return jsonErrorMessageResponse(errMsg);
-            }
-            duuid = duuid + "_" + format;
-        }
-        final String logMessage = "@GET download: [{0}]";
+        logger.info("download - " + uuid + "," + format);
         Attachment attachment = Attachment.findById(uuid);
         if (attachment == null) {
             return handleObjectNotFoundRequest(uuid);
         }
-        logger.infov(logMessage, attachment);
-        logger.info(MediaType.valueOf(attachment.mime_type));
-
-        boolean itemExists = attachment.formats.stream().anyMatch(c -> c.equals(format));
-        if (itemExists) {
-            return Response.ok(s3Client.downloadObject(duuid), attachment.mime_type)
-                    .header("Content-Disposition", "attachment; filename=\"" + attachment.name + "\"")
-                    .build();
+        if (format != null && !format.isBlank()) {
+            String duuid = uuid + "_" + format;
+            boolean itemExists = attachment.formats.stream().anyMatch(c -> c.equals(format));
+            if (itemExists) {
+                return Response.ok(s3Client.downloadObject(duuid), attachment.mime_type)
+                        .header("Content-Disposition", "attachment; filename=\"" + attachment.name + "\"")
+                        .build();
+            } else {
+                imageEvent.fireAsync(new ImageEvent(uuid, format));
+            }
         }
-        else {
-            return Response.ok(s3Client.downloadObject(attachment.uuid), attachment.mime_type)
-                    .header("Content-Disposition", "attachment; filename=\"" + attachment.name + "\"")
-                    .build();
-        }
+        return Response.ok(s3Client.downloadObject(attachment.uuid), attachment.mime_type)
+                .header("Content-Disposition", "attachment; filename=\"" + attachment.name + "\"")
+                .build();
     }
 
     private void performDocumentUploading(Attachment attachment, FormData formData, String logMessage) throws Exception {

@@ -14,6 +14,7 @@ import javax.jms.JMSContext;
 import javax.jms.JMSException;
 import javax.jms.Message;
 import javax.jms.Session;
+import javax.transaction.Transactional;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -24,7 +25,7 @@ import io.quarkus.runtime.StartupEvent;
 import it.ness.alexander.first.model.pojo.ImageEvent;
 import org.jboss.logging.Logger;
 
-import javax.transaction.Transactional;
+import static it.ness.alexander.first.management.AppConstants.IMAGE_RESIZE_QUEUE;
 
 @ApplicationScoped
 public class ImageServiceJms implements Runnable {
@@ -51,12 +52,11 @@ public class ImageServiceJms implements Runnable {
     @Transactional
     public void run() {
         try (JMSContext context = connectionFactory.createContext(Session.AUTO_ACKNOWLEDGE)) {
-            JMSConsumer consumer = context.createConsumer(context.createQueue("imageResizeQueue"));
+            JMSConsumer consumer = context.createConsumer(context.createQueue(IMAGE_RESIZE_QUEUE));
             while (true) {
                 final Message message = consumer.receive();
-                if (message == null) {
-                    return;
-                }
+                if (message == null) return;
+
                 final String jsonMessage = message.getBody(String.class);
                 ObjectMapper objectMapper = new ObjectMapper();
                 Map<String, Object> map
